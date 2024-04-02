@@ -8,6 +8,8 @@ static volatile int counter;
 static pthread_mutexattr_t mutex_pi;
 static pthread_mutex_t mutex;
 
+#define barrier()	asm volatile ("" ::: "memory")
+
 void busy_loop(void)
 {
 	while (1)
@@ -41,6 +43,7 @@ void *low_prio_thread(void *data)
 	set_nice(10);
 	fprintf(stdout, "Low Prio thread started, nice: %d\n", get_nice());
 	pthread_mutex_lock(&mutex);
+	barrier();
 	low_prio_started = true;
 	busy_loop();
 	return NULL;
@@ -50,6 +53,7 @@ void *high_prio_thread(void *data)
 {
 	fprintf(stdout, "High Prio thread started, nice: %d\n", get_nice());
 	while (!low_prio_thread);
+	barrier();
 	pthread_mutex_lock(&mutex);
 	fprintf(stderr, "Error: High Prio thread should never run.\n");
 	return NULL;
