@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -40,6 +41,7 @@ void set_nice(int nice)
 
 void *low_prio_thread(void *data)
 {
+	pthread_setname_np(pthread_self(), "pi_test_low");
 	set_nice(10);
 	fprintf(stdout, "Low Prio thread started, nice: %d\n", get_nice());
 	pthread_mutex_lock(&mutex);
@@ -51,6 +53,7 @@ void *low_prio_thread(void *data)
 
 void *high_prio_thread(void *data)
 {
+	pthread_setname_np(pthread_self(), "pi_test_high");
 	fprintf(stdout, "High Prio thread started, nice: %d\n", get_nice());
 	while (!low_prio_thread);
 	barrier();
