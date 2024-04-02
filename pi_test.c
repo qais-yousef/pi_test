@@ -1,6 +1,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <sys/resource.h>
 
 static bool low_prio_started;
 static volatile int counter;
@@ -11,9 +12,32 @@ void busy_loop(void)
 		counter++;
 }
 
+int get_nice(void)
+{
+	int nice;
+
+	nice = getpriority(PRIO_PROCESS, 0);
+	if (nice == -1) {
+		fprintf(stderr, "Failed to get nice\n");
+		return 0;
+	}
+
+	return nice;
+}
+
+void set_nice(int nice)
+{
+	int err;
+
+	err = setpriority(PRIO_PROCESS, 0, nice);
+	if (err)
+		fprintf(stderr, "Failed to change nice to %d\n", nice);
+}
+
 void *low_prio_thread(void *data)
 {
-	fprintf(stdout, "Low Prio thread started\n");
+	set_nice(10);
+	fprintf(stdout, "Low Prio thread started, nice: %d\n", get_nice());
 	low_prio_started = true;
 	busy_loop();
 	return NULL;
@@ -22,7 +46,7 @@ void *low_prio_thread(void *data)
 void *high_prio_thread(void *data)
 {
 	while (!low_prio_thread);
-	fprintf(stdout, "High Prio thread started\n");
+	fprintf(stdout, "High Prio thread started, nice: %d\n", get_nice());
 	busy_loop();
 	return NULL;
 }
@@ -30,28 +54,12 @@ void *high_prio_thread(void *data)
 int main(int argc, char *argv[])
 {
 	pthread_t lp, hp, busy;
-	pthread_attr_t lp_attr;
-	struct sched_param lp_param = { 0 };
-	int err;
 
-	err = pthread_attr_init(&lp_attr);
-	if (err) {
-		fprintf(stderr, "Failed to init pthread_attr: %d\n", err);
-		return err;
-	}
-	err = pthread_attr_setschedparam(&lp_attr, &lp_param);
-	if (err) {
-		fprintf(stderr, "Failed to set prio: %d\n", err);
-		return err;
-	}
-	pthread_attr_setinheritsched(&lp_attr, PTHREAD_EXPLICIT_SCHED);
-
-	pthread_create(&lp, &lp_attr, low_prio_thread, NULL);
+	pthread_create(&lp, NULL, low_prio_thread, NULL);
 	pthread_create(&hp, NULL, high_prio_thread, NULL);
 
 	busy_loop();
 
-	pthread_attr_destroy(&lp_attr);
 	pthread_join(lp, NULL);
 	pthread_join(hp, NULL);
 
