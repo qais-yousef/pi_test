@@ -65,6 +65,7 @@ void *high_prio_thread(void *data)
 int main(int argc, char *argv[])
 {
 	pthread_t lp, hp, busy;
+	cpu_set_t cpuset;
 	int err;
 
 	err = pthread_mutexattr_init(&mutex_pi);
@@ -76,6 +77,10 @@ int main(int argc, char *argv[])
 	err = pthread_mutex_init(&mutex, &mutex_pi);
 	if (err)
 		fprintf(stderr, "Failed to init mutex\n");
+
+	CPU_ZERO(&cpuset);
+	CPU_SET(0, &cpuset);
+	pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
 
 	pthread_create(&lp, NULL, low_prio_thread, NULL);
 	pthread_create(&hp, NULL, high_prio_thread, NULL);
