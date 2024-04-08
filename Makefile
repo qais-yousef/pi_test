@@ -1,5 +1,7 @@
+CC=gcc
+
 pi_test: pi_test.c
-	cc -O2 -g $^ -o $@ -lpthread
+	$(CROSS_COMPILE)$(CC) -O2 -g $^ -o $@ -lpthread -static
 
 all: pi_test
 
