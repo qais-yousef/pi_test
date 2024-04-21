@@ -10,12 +10,14 @@
 #include <sys/resource.h>
 
 static volatile bool low_prio_started;
+static volatile bool high_prio_1_started;
 static volatile int counter;
 static pthread_mutexattr_t mutex_pi;
 static pthread_mutex_t mutex;
 
 static int lp_nice = 10;
-static int hp_nice = 0;
+static int hp_1_nice = 0;
+static int hp_2_nice = 0;
 static int pin_cpu = 0;
 
 #define barrier()	asm volatile ("" ::: "memory")
@@ -32,14 +34,16 @@ enum pi_test_opts_flags {
 	OPT_DUMMY_START = 0x80,
 
 	OPT_LP_NICE,
-	OPT_HP_NICE,
+	OPT_HP_1_NICE,
+	OPT_HP_2_NICE,
 
 	OPT_AFFINE_CPU,
 };
 
 static const struct argp_option options[] = {
 	{ "lp-nice", OPT_LP_NICE, "NICE", 0, "Nice value of low priority thread to run at. Default 10." },
-	{ "hp-nice", OPT_HP_NICE, "NICE", 0, "Nice value of high priority thread to run at. Default 0." },
+	{ "hp-1-nice", OPT_HP_1_NICE, "NICE", 0, "Nice value of 1st high priority thread to run at. Default 0." },
+	{ "hp-2-nice", OPT_HP_2_NICE, "NICE", 0, "Nice value of 2nd high priority thread to run at. Default 0." },
 	{ "affine-cpu", OPT_AFFINE_CPU, "NICE", 0, "CPU to affine the tasks to. Default 0." },
 	{ 0 },
 };
@@ -62,15 +66,28 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 			return -EINVAL;
 		}
 		break;
-	case OPT_HP_NICE:
+	case OPT_HP_1_NICE:
 		errno = 0;
-		hp_nice = strtol(arg, &end_ptr, 0);
+		hp_1_nice = strtol(arg, &end_ptr, 0);
 		if (errno != 0) {
-			perror("Unsupported hp_nice value\n");
+			perror("Unsupported hp_1_nice value\n");
 			return errno;
 		}
 		if (end_ptr == arg) {
-			fprintf(stderr, "hp_nice: no digits were found\n");
+			fprintf(stderr, "hp_1_nice: no digits were found\n");
+			argp_usage(state);
+			return -EINVAL;
+		}
+		break;
+	case OPT_HP_2_NICE:
+		errno = 0;
+		hp_2_nice = strtol(arg, &end_ptr, 0);
+		if (errno != 0) {
+			perror("Unsupported hp_2_nice value\n");
+			return errno;
+		}
+		if (end_ptr == arg) {
+			fprintf(stderr, "hp_2_nice: no digits were found\n");
 			argp_usage(state);
 			return -EINVAL;
 		}
@@ -116,8 +133,9 @@ int get_nice(void)
 {
 	int nice;
 
+	errno = 0;
 	nice = getpriority(PRIO_PROCESS, 0);
-	if (nice == -1) {
+	if (nice == -1 && errno) {
 		fprintf(stderr, "Failed to get nice\n");
 		return 0;
 	}
@@ -146,12 +164,25 @@ void *low_prio_thread(void *data)
 	return NULL;
 }
 
-void *high_prio_thread(void *data)
+void *high_prio_thread_1(void *data)
 {
-	pthread_setname_np(pthread_self(), "pi_test_high");
-	set_nice(hp_nice);
-	fprintf(stdout, "High Prio thread started, nice: %d\n", get_nice());
-	while (!low_prio_thread);
+	pthread_setname_np(pthread_self(), "pi_test_high_1");
+	set_nice(hp_1_nice);
+	fprintf(stdout, "High Prio thread 1 started, nice: %d\n", get_nice());
+	while (!low_prio_started);
+	barrier();
+	high_prio_1_started = true;
+	pthread_mutex_lock(&mutex);
+	fprintf(stderr, "Error: High Prio thread should never run.\n");
+	return NULL;
+}
+
+void *high_prio_thread_2(void *data)
+{
+	pthread_setname_np(pthread_self(), "pi_test_high_2");
+	set_nice(hp_2_nice);
+	fprintf(stdout, "High Prio thread 2 started, nice: %d\n", get_nice());
+	while (!high_prio_1_started);
 	barrier();
 	pthread_mutex_lock(&mutex);
 	fprintf(stderr, "Error: High Prio thread should never run.\n");
@@ -160,7 +191,7 @@ void *high_prio_thread(void *data)
 
 int main(int argc, char *argv[])
 {
-	pthread_t lp, hp, busy;
+	pthread_t lp, hp1, hp2, busy;
 	cpu_set_t cpuset;
 	int err;
 
@@ -183,12 +214,14 @@ int main(int argc, char *argv[])
 	pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
 
 	pthread_create(&lp, NULL, low_prio_thread, NULL);
-	pthread_create(&hp, NULL, high_prio_thread, NULL);
+	pthread_create(&hp1, NULL, high_prio_thread_1, NULL);
+	pthread_create(&hp2, NULL, high_prio_thread_2, NULL);
 
 	busy_loop();
 
 	pthread_join(lp, NULL);
-	pthread_join(hp, NULL);
+	pthread_join(hp1, NULL);
+	pthread_join(hp2, NULL);
 
 	return 0;
 }
